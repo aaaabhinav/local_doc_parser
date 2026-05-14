@@ -7,7 +7,8 @@ class OCREngine:
     def __init__(self):
         logger.info("Initializing PaddleOCR Engine...")
         # use_angle_cls=True ensures that rotated text is correctly recognized
-        self.ocr = PaddleOCR(use_angle_cls=True, lang='en', enable_mkldnn=False)
+        # Reverting to CPU + MKLDNN because Windows lacks cuDNN
+        self.ocr = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=False, enable_mkldnn=True)
         logger.info("PaddleOCR Engine initialized.")
 
     def extract(self, file_bytes: bytes):

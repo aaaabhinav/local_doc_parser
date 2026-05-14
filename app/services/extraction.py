@@ -1,5 +1,6 @@
 import json
 import asyncio
+import time
 from app.utils.logger import logger
 from app.llm.prompts import build_extraction_prompt
 
@@ -10,18 +11,24 @@ class ExtractionService:
 
     async def process_document(self, file_bytes: bytes):
         logger.info("Starting document processing pipeline...")
+        pipeline_start = time.time()
         
         # 1. OCR Extraction (Run in threadpool to prevent blocking)
+        ocr_start = time.time()
         ocr_text, ocr_conf = await asyncio.to_thread(self.ocr.extract, file_bytes)
+        ocr_duration = time.time() - ocr_start
         
         if not ocr_text.strip():
             raise ValueError("No text detected in image")
             
-        logger.info(f"OCR extracted {len(ocr_text)} characters.")
+        logger.info(f"[TIMING] OCR completed in {ocr_duration:.2f} seconds. Extracted {len(ocr_text)} characters.")
 
         # 2. LLM Processing
+        llm_start = time.time()
         prompt = build_extraction_prompt(ocr_text)
         llm_response = await asyncio.to_thread(self.llm.generate, prompt)
+        llm_duration = time.time() - llm_start
+        logger.info(f"[TIMING] LLM inference completed in {llm_duration:.2f} seconds.")
         
         # 3. JSON Repair & Parsing
         extracted_data = self._parse_json(llm_response)
@@ -31,7 +38,16 @@ class ExtractionService:
             k: ocr_conf.get("ocr_mean_confidence", 0.85) for k in extracted_data.keys()
         }
         
-        logger.info("Document processing pipeline complete.")
+        total_duration = time.time() - pipeline_start
+        
+        print("\n" + "="*50)
+        print(f"⏱️ TIMING REPORT:")
+        print(f"  -> OCR Processing: {ocr_duration:.2f} seconds")
+        print(f"  -> LLM Processing: {llm_duration:.2f} seconds")
+        print(f"  -> Total Pipeline: {total_duration:.2f} seconds")
+        print("="*50 + "\n")
+        
+        logger.info(f"[TIMING] Document processing pipeline complete. Total time: {total_duration:.2f} seconds.")
         return extracted_data, field_confidence
         
     def _parse_json(self, text: str) -> dict:
