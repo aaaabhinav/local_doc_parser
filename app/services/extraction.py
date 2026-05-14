@@ -1,0 +1,46 @@
+import json
+import asyncio
+from app.utils.logger import logger
+from app.llm.prompts import build_extraction_prompt
+
+class ExtractionService:
+    def __init__(self, llm_engine, ocr_engine):
+        self.llm = llm_engine
+        self.ocr = ocr_engine
+
+    async def process_document(self, file_bytes: bytes):
+        logger.info("Starting document processing pipeline...")
+        
+        # 1. OCR Extraction (Run in threadpool to prevent blocking)
+        ocr_text, ocr_conf = await asyncio.to_thread(self.ocr.extract, file_bytes)
+        
+        if not ocr_text.strip():
+            raise ValueError("No text detected in image")
+            
+        logger.info(f"OCR extracted {len(ocr_text)} characters.")
+
+        # 2. LLM Processing
+        prompt = build_extraction_prompt(ocr_text)
+        llm_response = await asyncio.to_thread(self.llm.generate, prompt)
+        
+        # 3. JSON Repair & Parsing
+        extracted_data = self._parse_json(llm_response)
+        
+        # 4. Confidence Calculation (Mock field confidence for now)
+        field_confidence = {
+            k: ocr_conf.get("ocr_mean_confidence", 0.85) for k in extracted_data.keys()
+        }
+        
+        logger.info("Document processing pipeline complete.")
+        return extracted_data, field_confidence
+        
+    def _parse_json(self, text: str) -> dict:
+        try:
+            if "```json" in text:
+                text = text.split("```json")[1].split("```")[0]
+            elif "```" in text:
+                text = text.split("```")[1].split("```")[0]
+            return json.loads(text.strip())
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON: {e}\nRaw output: {text}")
+            return {"error": "Failed to extract structured data", "raw_text": text}
